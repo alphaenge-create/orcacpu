@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import * as XLSX from "xlsx";
+import { db } from "./firebase";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import {
   Plus, Trash2, Pencil, X, Search, Upload, Download,
   ChevronDown, ChevronRight, Database, Calculator, Copy, Save, Percent, TrendingUp, RefreshCw,
@@ -175,8 +177,6 @@ export default function App() {
   const [precos, setPrecos] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState("");
-  const [usuario, setUsuario] = useState(null);     // { nome, email }
-  const [showUserModal, setShowUserModal] = useState(false);
   const saveTimer = useRef(null);
   const fileInputRef = useRef(null);
   // Novos estados para controle de recolhimento/expansão das camadas
@@ -187,8 +187,10 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await window.storage.get("orcacpu:data_v2");
-        const data = JSON.parse(res.value);
+        const ref = doc(db, "orcacpu", "data_v2");
+        const snap = await getDoc(ref);
+        if (!snap.exists()) throw new Error("sem dados");
+        const data = snap.data();
         setCpus(data.cpus || []);
         setProjetos(data.projetos || []);
         setPrecos(data.precos || []);
@@ -224,9 +226,6 @@ export default function App() {
       } catch {
         setShowUserModal(true); // primeira vez — pede identificação
       }
-    })();
-  }, []);
-
   // Salvamento Automático
   useEffect(() => {
     if (!loaded) return;
@@ -234,7 +233,7 @@ export default function App() {
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       try {
-        await window.storage.set("orcacpu:data_v2", JSON.stringify({ cpus, projetos, precos, projetoAtivoId }));
+        await setDoc(doc(db, "orcacpu", "data_v2"), { cpus, projetos, precos, projetoAtivoId });
         setStatus("Salvo");
       } catch {
         setStatus("Falha ao salvar");
@@ -328,13 +327,7 @@ export default function App() {
       })
     );
   };
-
-  const saveUsuario = async (u) => {
-    await window.storage.set("orcacpu:usuario", JSON.stringify(u));
-    setUsuario(u);
-    setShowUserModal(false);
-  };
-  
+    
 // NOVO: Função para varrer e consolidar o quantitativo de materiais
   const processarMateriais = useMemo(() => {
     const resumoMAT = {};
@@ -445,8 +438,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900">
-      {showUserModal && <UserModal onSave={saveUsuario} />}
-
+      
       <div className="max-w-6xl mx-auto px-4 py-6">
         {/* ── HEADER ── */}
         <header className="flex items-center justify-between mb-6">
@@ -460,14 +452,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-stone-400">{status}</span>
-            <button
-              onClick={() => setShowUserModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-stone-200 rounded-lg bg-white hover:bg-stone-50"
-              title="Identificação do usuário"
-            >
-              <User size={13} />
-              {usuario ? usuario.nome : "Identificar-se"}
-            </button>
+            
           </div>
         </header>
 
@@ -2539,74 +2524,6 @@ function PrecoVenda({ etapas, FatorBdi, grandTotal, nomeProjeto }) {
     </div>
   );
 }
-/* ─────────────────────────────────────────────────────────────
-   MODAL DE IDENTIFICAÇÃO DO USUÁRIO
-───────────────────────────────────────────────────────────── */
-function UserModal({ onSave }) {
-  const [nome, setNome] = useState("");
-  const [email, setEmail] = useState("");
-
-  const handleSave = () => {
-    if (!nome.trim()) return;
-    onSave({ nome: nome.trim(), email: email.trim() });
-  };
-
-  return (
-    <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-10 h-10 rounded-full bg-stone-900 flex items-center justify-center">
-            <User size={18} className="text-white" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-stone-900">Identificação</h2>
-            <p className="text-xs text-stone-400">Quem está utilizando o sistema?</p>
-          </div>
-        </div>
-
-        <div className="space-y-3 mb-5">
-          <div>
-            <label className="block text-xs font-medium text-stone-500 mb-1">Nome completo *</label>
-            <input
-              autoFocus
-              value={nome}
-              onChange={(e) => setNome(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSave()}
-              placeholder="Ex: João Silva"
-              className="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-stone-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-stone-500 mb-1">
-              E-mail <span className="font-normal text-stone-400">(opcional)</span>
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSave()}
-              placeholder="Ex: joao@empresa.com.br"
-              className="w-full border border-stone-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-stone-500"
-            />
-          </div>
-        </div>
-
-        <p className="text-[11px] text-stone-400 mb-4">
-          Estas informações ficam salvas apenas neste dispositivo/navegador. Não há conta ou login externo.
-        </p>
-
-        <button
-          onClick={handleSave}
-          disabled={!nome.trim()}
-          className="w-full bg-stone-900 text-white rounded-lg py-2 text-sm font-medium hover:bg-stone-700 disabled:opacity-40 flex items-center justify-center gap-2"
-        >
-          <LogIn size={15} /> Entrar no sistema
-        </button>
-      </div>
-    </div>
-  );
-}
-
 /* ─────────────────────────────────────────────────────────────
    ABA MÃO DE OBRA
 ───────────────────────────────────────────────────────────── */
