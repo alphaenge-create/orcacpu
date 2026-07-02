@@ -147,24 +147,20 @@ const applyCatalogToInsumos = (insumos, catalogMap) =>
 
 const calcBdi = (b, custoInicialOverride) => {
   const custoInicial = num(custoInicialOverride !== undefined ? custoInicialOverride : b.custoInicial);
-  const c4 = custoInicial * num(b.admCentral);
-  const c5 = custoInicial * num(b.contabilidade);
-  const c6 = custoInicial * num(b.contingenciamento);
-  const c7 = custoInicial * num(b.custoFinanceiro);
-  const totalDiRate = num(b.admCentral) + num(b.contabilidade) + num(b.contingenciamento) + num(b.custoFinanceiro);
-  const totalDiValor = c4 + c5 + c6 + c7;
-  const totalImpostoLucroRate = num(b.dasAnexoIV) + num(b.art) + num(b.lucro);
-  const denom = 1 - (num(b.dasAnexoIV) + num(b.art));
-  const bdiRate = denom !== 0 ? (totalDiRate + num(b.dasAnexoIV) + num(b.art) + num(b.lucro)) / denom : 0;
-  const FatorBdi = 1 + bdiRate;
+  const ac = num(b.admCentral);
+  const ct = num(b.contabilidade);
+  const co = num(b.contingenciamento);
+  const cf = num(b.custoFinanceiro);
+  const lucro = num(b.lucro);
+  const das = num(b.dasAnexoIV);
+  const art = num(b.art);
+  const pv = das + art;
+  const numerador = (1 + ac) * (1 + ct) * (1 + co) * (1 + cf) * (1 + lucro);
+  const denominador = 1 - pv;
+  const FatorBdi = denominador <= 0 ? 1 : numerador / denominador;
+  const bdiRate = FatorBdi - 1;
   const valorVenda = custoInicial * FatorBdi;
-  const c10 = valorVenda * num(b.dasAnexoIV);
-  const c11 = num(b.art) * valorVenda;
-  const c12 = custoInicial * num(b.lucro);
-  return {
-    c4, c5, c6, c7, totalDiRate, totalDiValor,
-    totalImpostoLucroRate, bdiRate, FatorBdi, valorVenda, c10, c11, c12,
-  };
+  return { bdiRate, FatorBdi, valorVenda };
 };
 
 const seedCpus = () => [
@@ -1328,151 +1324,6 @@ function TabBtn({ active, onClick, icon, children, disabled }) {
       {icon}
       {children}
     </button>
-  );
-}
-
-/* ---------------- NOVA ABA: GESTÃO DE PROJETOS MULTI-ORÇAMENTOS ---------------- */
-function ProjetosTab({ projetos, setProjetos, projetoAtivoId, setProjetoAtivoId, setTab }) {
-  const [novoNome, setNovoNome] = useState("");
-  const [novoCliente, setNovoCliente] = useState("");
-  const [confirmandoDelete, setConfirmandoDelete] = useState(null); // null | "unico" | id do projeto
-
-  const criarProjeto = (e) => {
-    e.preventDefault();
-    if (!novoNome.trim()) return;
-    const pId = uid();
-    const novoProj = {
-      id: pId,
-      nome: novoNome,
-      cliente: novoCliente || "Não Informado",
-      etapas: [{ id: uid(), nome: "Etapa 1", itens: [] }],
-      bdi: {
-        custoInicial: 0,
-        admCentral: 0.04,
-        contabilidade: 0.01,
-        contingenciamento: 0.02,
-        custoFinanceiro: 0.03,
-        dasAnexoIV: 0.13,
-        art: 0,
-        lucro: 0.42,
-      }
-    };
-    setProjetos([...projetos, novoProj]);
-    setProjetoAtivoId(pId);
-    setNovoNome("");
-    setNovoCliente("");
-  };
-
-  const deletarProjeto = (id, e) => {
-    e.stopPropagation();
-    if (projetos.length <= 1) {
-      setConfirmandoDelete("unico");
-      return;
-    }
-    if (confirmandoDelete !== id) {
-      setConfirmandoDelete(id);
-      return;
-    }
-    const novos = projetos.filter((p) => p.id !== id);
-    setProjetos(novos);
-    if (projetoAtivoId === id) setProjetoAtivoId(novos[0].id);
-    setConfirmandoDelete(null);
-  };
-
-  return (
-    <div className="space-y-6">
-      <form onSubmit={criarProjeto} className="bg-white border border-stone-200 rounded-lg p-4 flex flex-wrap gap-3 items-end">
-        <div className="flex-1 min-w-[200px]">
-          <label className="block text-xs font-medium text-stone-500 mb-1">Nome do Novo Projeto / Obra</label>
-          <input
-            value={novoNome}
-            onChange={(e) => setNovoNome(e.target.value)}
-            placeholder="Ex: Reforma Comercial - Sala 402"
-            className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2"
-          />
-        </div>
-        <div className="flex-1 min-w-[200px]">
-          <label className="block text-xs font-medium text-stone-500 mb-1">Cliente / Local</label>
-          <input
-            value={novoCliente}
-            onChange={(e) => setNovoCliente(e.target.value)}
-            placeholder="Ex: Edifício Elza Birchal"
-            className="w-full text-sm border border-stone-300 rounded-lg px-3 py-2"
-          />
-        </div>
-        <button type="submit" className="bg-stone-900 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-stone-700 h-[38px] flex items-center gap-1">
-          <Plus size={16} /> Criar Orçamento
-        </button>
-      </form>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {projetos.map((p) => {
-          const totalCusto = p.etapas.reduce((s, e) => s + e.itens.reduce((s2, it) => s2 + num(it.quantidade) * cpuValorUnit(it.insumos), 0), 0);
-          const f = 1 + calcBdi(p.bdi, totalCusto).bdiRate;
-          const isAtivo = p.id === projetoAtivoId;
-
-          return (
-            <div
-              key={p.id}
-              onClick={() => setProjetoAtivoId(p.id)}
-              className={`border rounded-lg p-4 bg-white cursor-pointer transition-all ${
-                isAtivo ? "border-stone-900 ring-2 ring-stone-900/10 shadow-sm" : "border-stone-200 hover:border-stone-400"
-              }`}
-            >
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <h3 className="font-semibold text-base flex items-center gap-2">
-                    {p.nome}
-                    {isAtivo && <span className="bg-stone-900 text-white text-[10px] uppercase font-bold px-1.5 py-0.5 rounded">Ativo</span>}
-                  </h3>
-                  <p className="text-xs text-stone-500">Cliente: {p.cliente}</p>
-                </div>
-                {confirmandoDelete === "unico" && p.id === projetoAtivoId ? (
-                  <span className="flex items-center gap-1 text-[11px]">
-                    <span className="text-amber-600 font-medium">Último projeto!</span>
-                    <button onClick={(e) => { e.stopPropagation(); setConfirmandoDelete(null); }} className="px-1.5 py-0.5 border border-stone-300 rounded">OK</button>
-                  </span>
-                ) : confirmandoDelete === p.id ? (
-                  <span className="flex items-center gap-1 text-[11px]" onClick={(e) => e.stopPropagation()}>
-                    <span className="text-red-600 font-medium">Confirmar?</span>
-                    <button onClick={(e) => deletarProjeto(p.id, e)} className="px-1.5 py-0.5 bg-red-600 text-white rounded">Sim</button>
-                    <button onClick={(e) => { e.stopPropagation(); setConfirmandoDelete(null); }} className="px-1.5 py-0.5 border border-stone-300 rounded">Não</button>
-                  </span>
-                ) : (
-                  <button
-                    onClick={(e) => deletarProjeto(p.id, e)}
-                    className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded"
-                    title="Excluir Orçamento"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                )}
-              </div>
-
-              <div className="mt-4 pt-3 border-t border-stone-100 flex justify-between text-xs text-stone-600">
-                <div>
-                  <span className="block text-[10px] uppercase font-semibold text-stone-400">Total Custo</span>
-                  <span className="font-mono text-sm font-medium text-stone-700">R$ {fmt(totalCusto)}</span>
-                </div>
-                <div className="text-right">
-                  <span className="block text-[10px] uppercase font-semibold text-stone-400">Preço de Venda (BDI)</span>
-                  <span className="font-mono text-sm font-semibold text-stone-900">R$ {fmt(totalCusto * f)}</span>
-                </div>
-              </div>
-
-              {isAtivo && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); setTab("custo"); }}
-                  className="mt-3 w-full bg-stone-100 text-stone-800 text-xs py-1.5 rounded text-center font-medium hover:bg-stone-200 transition-colors"
-                >
-                  Ir para Planilha de Custos →
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 
