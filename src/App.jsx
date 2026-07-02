@@ -14,7 +14,21 @@ const norm = (s) =>
 const fmt = (n) =>
   (Number(n) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const num = (v) => (v === "" || v === null || v === undefined ? 0 : Number(v));
-
+const sanitize = (v) => {
+  if (v === undefined) return null;
+  if (v === null) return null;
+  if (Array.isArray(v)) return v.map(sanitize);
+  if (v instanceof Date) return v;
+  if (typeof v === "object") {
+    const out = {};
+    for (const k of Object.keys(v)) {
+      const s = sanitize(v[k]);
+      if (s !== undefined) out[k] = s;
+    }
+    return out;
+  }
+  return v;
+};
 const TIPOS = [
   { v: "MO", label: "Mão de obra" },
   { v: "MAT", label: "Material" },
@@ -222,22 +236,25 @@ export default function App() {
     })();
   }, []);
 
-  // Salvamento Automático
+  // Salvamento Automático (Corrigido com Sanitize)
   useEffect(() => {
     if (!loaded) return;
     setStatus("Salvando...");
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       try {
-        await setDoc(doc(db, "orcacpu", "data_v2"), { cpus, projetos, precos, projetoAtivoId });
+        // Limpa os dados de valores 'undefined' antes de enviar ao Firestore
+        const payload = sanitize({ cpus, projetos, precos, projetoAtivoId });
+        await setDoc(doc(db, "orcacpu", "data_v2"), payload);
         setStatus("Salvo");
-      } catch {
-        setStatus("Falha ao salvar");
+      } catch (e) {
+        console.error("Erro real ao salvar no Firestore:", e);
+        setStatus("Falha ao salvar: " + (e?.message || e));
       }
-      setTimeout(() => setStatus(""), 1500);
+      setTimeout(() => setStatus(""), 4000);
     }, 600);
   }, [cpus, projetos, precos, projetoAtivoId, loaded]);
-
+  
   // Projeto Corrente Detectado
   const projetoAtivo = useMemo(() => {
     return projetos.find((p) => p.id === projetoAtivoId) || projetos[0] || null;
